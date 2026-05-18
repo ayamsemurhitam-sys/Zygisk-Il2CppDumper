@@ -280,7 +280,7 @@ std::string dump_type(const Il2CppType *type) {
     // Menuliskan TypeDefIndex jika tersedia di metadata tipe data
     if (type) {
         // Menggunakan indeks definisi tipe data internal IL2CPP
-        outPut << "// TypeDefIndex: " << std::dec << type->data.typeDefinitionIndex << "\n";
+        outPut << "// TypeDefIndex: " << std::dec << type->data.klassIndex << "\n";
     }
 
     // Cetak RVA dan VA ke dalam dump.cs sebagai komentar di atas class
