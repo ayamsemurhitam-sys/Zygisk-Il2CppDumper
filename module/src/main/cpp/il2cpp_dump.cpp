@@ -203,8 +203,18 @@ std::string dump_field(Il2CppClass *klass) {
         //TODO attribute
         outPut << "\t";
         auto attrs = il2cpp_field_get_flags(field);
+        
+        // === TAMBAHKAN PENGECEKAN STATIC FIELD DI SINI ===
+        bool is_static_field = (attrs & FIELD_ATTRIBUTE_STATIC) != 0;
+        if (is_static_field) {
+            // Memberi tahu menu external Anda bahwa ini field statis yang dicari
+            outPut << "/* [Static Field] Offset di dalam class: 0x" << std::hex << il2cpp_field_get_offset(field) << " */ ";
+        }
+        // ==================================================
+
         auto access = attrs & FIELD_ATTRIBUTE_FIELD_ACCESS_MASK;
         switch (access) {
+            // ... isi switch case kode bawaan tetap sama ...
             case FIELD_ATTRIBUTE_PRIVATE:
                 outPut << "private ";
                 break;
@@ -235,13 +245,13 @@ std::string dump_field(Il2CppClass *klass) {
         auto field_type = il2cpp_field_get_type(field);
         auto field_class = il2cpp_class_from_type(field_type);
         outPut << il2cpp_class_get_name(field_class) << " " << il2cpp_field_get_name(field);
-        //TODO 获取构造函数初始化后的字段值
+        
         if (attrs & FIELD_ATTRIBUTE_LITERAL && is_enum) {
             uint64_t val = 0;
             il2cpp_field_static_get_value(field, &val);
             outPut << " = " << std::dec << val;
         }
-        outPut << "; // 0x" << std::hex << il2cpp_field_get_offset(field) << "\n";
+        outPut << "; // Field Offset: 0x" << std::hex << il2cpp_field_get_offset(field) << "\n";
     }
     return outPut.str();
 }
@@ -249,11 +259,42 @@ std::string dump_field(Il2CppClass *klass) {
 std::string dump_type(const Il2CppType *type) {
     std::stringstream outPut;
     auto *klass = il2cpp_class_from_type(type);
+    
+    // Validasi awal untuk mencegah crash jika pointer class tidak valid
+    if (!klass) {
+        return "";
+    }
+
+    // =================================================================
+    // PERBAIKAN: HITUNG CLASS RVA & VA UNTUK PROJECT EXTERNAL
+    // =================================================================
+    uint64_t class_runtime_address = reinterpret_cast<uint64_t>(klass);
+    uint64_t class_rva = 0;
+    if (class_runtime_address != 0 && il2cpp_base != 0) {
+        class_rva = class_runtime_address - il2cpp_base;
+    }
+
+    // Menuliskan informasi Namespace
     outPut << "\n// Namespace: " << il2cpp_class_get_namespace(klass) << "\n";
+
+    // Menuliskan TypeDefIndex jika tersedia di metadata tipe data
+    if (type) {
+        // Menggunakan indeks definisi tipe data internal IL2CPP
+        outPut << "// TypeDefIndex: " << std::dec << type->data.typeDefinitionIndex << "\n";
+    }
+
+    // Cetak RVA dan VA ke dalam dump.cs sebagai komentar di atas class
+    if (class_rva != 0) {
+        outPut << "// Class RVA (Offset): 0x" << std::hex << std::uppercase << class_rva << "\n";
+        outPut << "// Class VA (Runtime): 0x" << std::hex << std::uppercase << class_runtime_address << "\n";
+    }
+    // =================================================================
+
     auto flags = il2cpp_class_get_flags(klass);
     if (flags & TYPE_ATTRIBUTE_SERIALIZABLE) {
         outPut << "[Serializable]\n";
     }
+    
     //TODO attribute
     auto is_valuetype = il2cpp_class_is_valuetype(klass);
     auto is_enum = il2cpp_class_is_enum(klass);
@@ -278,6 +319,7 @@ std::string dump_type(const Il2CppType *type) {
             outPut << "protected internal ";
             break;
     }
+    
     if (flags & TYPE_ATTRIBUTE_ABSTRACT && flags & TYPE_ATTRIBUTE_SEALED) {
         outPut << "static ";
     } else if (!(flags & TYPE_ATTRIBUTE_INTERFACE) && flags & TYPE_ATTRIBUTE_ABSTRACT) {
@@ -285,6 +327,7 @@ std::string dump_type(const Il2CppType *type) {
     } else if (!is_valuetype && !is_enum && flags & TYPE_ATTRIBUTE_SEALED) {
         outPut << "sealed ";
     }
+    
     if (flags & TYPE_ATTRIBUTE_INTERFACE) {
         outPut << "interface ";
     } else if (is_enum) {
@@ -294,31 +337,37 @@ std::string dump_type(const Il2CppType *type) {
     } else {
         outPut << "class ";
     }
+    
     outPut << il2cpp_class_get_name(klass); //TODO genericContainerIndex
+    
     std::vector<std::string> extends;
     auto parent = il2cpp_class_get_parent(klass);
     if (!is_valuetype && !is_enum && parent) {
         auto parent_type = il2cpp_class_get_type(parent);
-        if (parent_type->type != IL2CPP_TYPE_OBJECT) {
+        if (parent_type && parent_type->type != IL2CPP_TYPE_OBJECT) {
             extends.emplace_back(il2cpp_class_get_name(parent));
         }
     }
+    
     void *iter = nullptr;
     while (auto itf = il2cpp_class_get_interfaces(klass, &iter)) {
         extends.emplace_back(il2cpp_class_get_name(itf));
     }
+    
     if (!extends.empty()) {
         outPut << " : " << extends[0];
         for (int i = 1; i < extends.size(); ++i) {
             outPut << ", " << extends[i];
         }
     }
+    
     outPut << "\n{";
     outPut << dump_field(klass);
     outPut << dump_property(klass);
     outPut << dump_method(klass);
     //TODO EventInfo
     outPut << "}\n";
+    
     return outPut.str();
 }
 
